@@ -3,7 +3,9 @@
 Steps: load + standardise -> pick starting centres -> repeat
 (assign each point to its nearest centre, move each centre to the
 mean of its points) until no point changes cluster.
-Still to add: WSS, random restarts, choosing K (silhouette).
+
+Done: K-means, WSS, best-of-N random restarts.
+Still to add: choosing K (WSS curve + silhouette).
 """
 
 import numpy as np
@@ -62,8 +64,18 @@ def update(Z, labels, k):
     return np.array(centres)
 
 
+def wss(Z, labels, centres):
+    """Within-cluster sum of squares: each point's squared distance to its own centre, summed.
+
+    centres[labels] repeats each point's own centre -> (n, 4), lined up with Z.
+    """
+    return ((Z - centres[labels]) ** 2).sum()
+
+
+# ---------------------------------------------------------------- the algorithm
+
 def kmeans(Z, k, rng, max_iterations=100):
-    """Run K-means from random starting centres.
+    """Run K-means once from random starting centres.
 
     Returns (centres, labels, n_rounds). Stops when a round of ASSIGN
     moves no point (labels unchanged), or after max_iterations.
@@ -79,24 +91,53 @@ def kmeans(Z, k, rng, max_iterations=100):
     return centres, labels, i + 1                  # i counts from 0
 
 
+def best_of_restarts(Z, k, n_starts=10, species=None):
+    """Run K-means from n_starts different seeds; keep the run with the lowest WSS.
+
+    K-means only finds the nearest dip in WSS from where it starts, so we
+    try several starts. The choice uses WSS alone (no labels), so it is fair.
+    If species is given, each run's agreement is printed as a check.
+    """
+    best = None
+    for seed in range(n_starts):
+        rng = np.random.default_rng(seed)          # one generator per seed: each run reproducible
+        centres, labels, n_rounds = kmeans(Z, k, rng)
+        score = wss(Z, labels, centres)
+
+        line = f"seed {seed}: WSS {score:.1f}, {n_rounds} rounds"
+        if species is not None:
+            line += f", agreement {agreement(species, labels):.1%}"
+        print(line)
+
+        if best is None or score < best["wss"]:
+            best = {"seed": seed, "wss": score, "labels": labels, "centres": centres}
+    return best
+
+
+# ---------------------------------------------------------------- checking
+
+def agreement(species, labels):
+    """Share of points whose cluster's majority species is their own species."""
+    table = pd.crosstab(species, labels)           # species x cluster counts
+    return table.max(axis=0).sum() / len(labels)   # majority per cluster, summed
+
+
 # ---------------------------------------------------------------- run
 
 if __name__ == "__main__":
     Z, species = load_penguins()
     print("Z:", Z.shape)                                       # (342, 4)
 
-    rng = np.random.default_rng(0)                             # seed 0: same run every time
+    # 1. One run, seed 0.
+    rng = np.random.default_rng(0)
     centres, labels, n_rounds = kmeans(Z, 3, rng)
+    print(f"\nOne run: {n_rounds} rounds, WSS {wss(Z, labels, centres):.1f}, "
+          f"agreement {agreement(species, labels):.1%}")
+    print(pd.crosstab(species, labels))
 
-    print("converged in", n_rounds, "rounds")
-    print("cluster sizes:", np.bincount(labels))
-    print("centres (standardised units):")
-    print(centres.round(2))
-
-    # Check against the species K-means never saw.
-    table = pd.crosstab(species, labels)                       # species x cluster counts
-    print(table)
-
-    # Agreement: give each cluster its majority species, count the matches.
-    agreement = table.max(axis=0).sum() / len(Z)
-    print(f"agreement with species: {agreement:.1%}")          # lecture: 91.5%
+    # 2. Ten restarts, keep the lowest WSS.
+    print("\nRestarts:")
+    best = best_of_restarts(Z, 3, n_starts=10, species=species)
+    print(f"\nBest: seed {best['seed']}, WSS {best['wss']:.1f}, "
+          f"agreement {agreement(species, best['labels']):.1%}")
+    print(pd.crosstab(species, best["labels"]))
