@@ -39,6 +39,14 @@ def assign(Z, centres):
     D = np.array(D)                                # (n, k) distance table
     return D.argmin(axis=1)                        # position of smallest in each row
 
+def update(Z, labels, k):
+    centres = []
+    for j in range(k):
+        centres.append(Z[labels == j].mean(axis=0))
+    return np.array(centres)
+
+def 
+
 
 if __name__ == "__main__":
     Z, species = load_penguins()
@@ -53,3 +61,8 @@ if __name__ == "__main__":
     labels = assign(Z, centres)
     print("labels:", labels.shape, labels[:10])            # (342,), values 0-2
     print("cluster sizes:", np.bincount(labels))           # points per cluster
+
+    new_centres = update(Z, labels, 3)
+    print(new_centres.shape)
+    print(centres.round(2))
+    print(new_centres.round(2))
